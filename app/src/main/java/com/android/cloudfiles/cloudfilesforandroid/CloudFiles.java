@@ -1,22 +1,22 @@
- /*
- *
- *  * Licensed to the Apache Software Foundation (ASF) under one
- *  * or more contributor license agreements.  See the NOTICE file
- *  * distributed with this work for additional information
- *  * regarding copyright ownership.  The ASF licenses this file
- *  * to you under the Apache License, Version 2.0 (the
- *  * "License"); you may not use this file except in compliance
- *  * with the License.  You may obtain a copy of the License at
- *  *
- *  * http://www.apache.org/licenses/LICENSE-2.0
- *  *
- *  * Unless required by applicable law or agreed to in writing, software
- *  * distributed under the License is distributed on an "AS IS" BASIS,
- *  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- *  * See the License for the specific language governing permissions and
- *  * limitations under the License.
- *
- */
+/*
+*
+*  * Licensed to the Apache Software Foundation (ASF) under one
+*  * or more contributor license agreements.  See the NOTICE file
+*  * distributed with this work for additional information
+*  * regarding copyright ownership.  The ASF licenses this file
+*  * to you under the Apache License, Version 2.0 (the
+*  * "License"); you may not use this file except in compliance
+*  * with the License.  You may obtain a copy of the License at
+*  *
+*  * http://www.apache.org/licenses/LICENSE-2.0
+*  *
+*  * Unless required by applicable law or agreed to in writing, software
+*  * distributed under the License is distributed on an "AS IS" BASIS,
+*  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+*  * See the License for the specific language governing permissions and
+*  * limitations under the License.
+*
+*/
 
 package com.android.cloudfiles.cloudfilesforandroid;
 
@@ -24,11 +24,9 @@ import java.io.BufferedInputStream;
 import java.io.ByteArrayInputStream;
 import java.io.File;
 import java.io.FileInputStream;
-import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
-import java.net.MalformedURLException;
 import java.net.URL;
 import java.net.URLConnection;
 import java.util.HashMap;
@@ -49,270 +47,259 @@ import com.squareup.okhttp.Response;
 
 public class CloudFiles {
 
-	private HashMap<String, String> urls = new HashMap<String, String>();
-	private HashMap<String, String> cdnUrls = new HashMap<String, String>();
+    private HashMap<String, String> urls = new HashMap<String, String>();
+    private HashMap<String, String> cdnUrls = new HashMap<String, String>();
 
-	private static final String tokenURL = "https://identity.api.rackspacecloud.com/v2.0/tokens";
+    private static final String tokenURL = "https://identity.api.rackspacecloud.com/v2.0/tokens";
 
-	public static final MediaType JSON = MediaType
-			.parse("application/json; charset=utf-8");
+    public static final MediaType JSON = MediaType
+            .parse("application/json; charset=utf-8");
 
-	public static final MediaType MEDIA_TYPE_MARKDOWN = MediaType
-			.parse("text/x-markdown; charset=utf-8");
+    public static final MediaType MEDIA_TYPE_MARKDOWN = MediaType
+            .parse("text/x-markdown; charset=utf-8");
 
-	private static final MediaType IMAGE = MediaType
-			.parse("Content-Type: image/jpeg");
+    private static final MediaType IMAGE = MediaType
+            .parse("Content-Type: image/jpeg");
 
-	private final OkHttpClient client;
+    private final OkHttpClient client;
 
-	private String token;
+    private String token;
 
-	public static CloudFiles initiate(String userName, String apiKey) throws IOException {
-		CloudFiles instance =  new CloudFiles();
-		instance.authentication(userName,apiKey);
-		return  instance;
-	}
+    /**
+     * Sstatic constructor to initiate CloudFiles instance
+     *
+     * @param userName
+     * @param apiKey
+     * @return @link CloudFiles
+     * @throws IOException
+     */
+    public static CloudFiles initiate(String userName, String apiKey) throws IOException {
+        CloudFiles instance = new CloudFiles();
+        instance.authentication(userName, apiKey);
+        return instance;
+    }
 
-	private CloudFiles() {
+    private CloudFiles() {
+        client = new OkHttpClient();
+    }
 
-		client = new OkHttpClient();
-	}
+    public Response download(String region, String bucket, String key,
+                             String target) throws IOException {
 
-	public void authentication(String userName, String apiKey)
-			throws IOException {
-		String json = token(userName, apiKey);
+        String string = getObjectCdnUrl(region, bucket, key);
 
-		JsonParser jsonParser = new JsonParser();
-		JsonObject jo = (JsonObject) jsonParser.parse(json);
+        Request request = new Request.Builder().url(string)
 
-		setToken(jo.getAsJsonObject("access").getAsJsonObject("token")
-				.get("id").getAsString());
-		JsonArray services = jo.getAsJsonObject("access").get("serviceCatalog")
-				.getAsJsonArray();
+                .get().build();
 
-		for (JsonElement jsonElement : services) {
-			JsonObject jobj = jsonElement.getAsJsonObject();
+        Response response = client.newCall(request).execute();
+        if (!response.isSuccessful())
+            throw new IOException("Unexpected code " + response);
 
-			if (jobj.get("name").getAsString().equals("cloudFiles")) {
+        FileOutputStream f = new FileOutputStream(target);
+        BufferedSink sink = Okio.buffer(Okio.sink(f));
+        sink.write(response.body().bytes());
+        sink.close();
 
-				JsonArray endpoints = jobj.getAsJsonArray("endpoints");
-				for (JsonElement jsonElement2 : endpoints) {
+        return response;
 
-					urls.put(jsonElement2.getAsJsonObject().get("region")
-							.getAsString(),
-							jsonElement2.getAsJsonObject().get("publicURL")
-									.getAsString());
+    }
 
-				}
-			}
+    public String uploadFromUrl(final String urlToUpload, String region, String bucket, String key) throws IOException {
 
-			if (jobj.get("name").getAsString().equals("cloudFilesCDN")) {
+        URL url = new URL(urlToUpload);
+        URLConnection connection = url.openConnection();
+        connection.connect();
+        int fileLenth = connection.getContentLength();
+        InputStream inputStream = url.openStream();
+        BufferedInputStream bufferedInputStream = new BufferedInputStream(inputStream);
 
-				JsonArray endpoints = jobj.getAsJsonArray("endpoints");
-				for (JsonElement jsonElement2 : endpoints) {
+        key = UUID.randomUUID().toString();
 
-					cdnUrls.put(jsonElement2.getAsJsonObject().get("region")
-							.getAsString(),
-							jsonElement2.getAsJsonObject().get("publicURL")
-									.getAsString());
+        if (urlToUpload.contains(".")) {
+            key = key + urlToUpload.substring(urlToUpload.lastIndexOf("."));
+        }
 
-				}
-			}
+        return upload(bufferedInputStream, fileLenth, region, bucket, key);
+    }
 
-		}
+    public String uploadFromBytes(final byte[] bytesToUpload, String region, String bucket, String key) throws IOException {
 
-	}
+        ByteArrayInputStream bufferedInputStream = new ByteArrayInputStream(bytesToUpload);
 
-	public Response download(String region, String bucket, String key,
-			String target) throws IOException {
+        key = UUID.randomUUID().toString();
 
-		String string = getObjectCdnUrl(region, bucket, key);
+        return upload(bufferedInputStream, bytesToUpload.length, region, bucket, key);
+    }
 
-		Request request = new Request.Builder().url(string)
+    public String uploadFromFile(final File fileToUpload, String region, String bucket, String key) throws IOException {
 
-		.get().build();
+        FileInputStream fileInputStream = new FileInputStream(fileToUpload);
 
-		Response response = client.newCall(request).execute();
-		if (!response.isSuccessful())
-			throw new IOException("Unexpected code " + response);
+        key = UUID.randomUUID().toString();
 
-		FileOutputStream f = new FileOutputStream(target);
-		BufferedSink sink = Okio.buffer(Okio.sink(f));
-		sink.write(response.body().bytes());
-		sink.close();
+        String fileName = fileToUpload.getName();
 
-		return response;
+        if (fileName.contains(".")) {
+            key = key + fileName.substring(fileName.lastIndexOf("."));
+        }
 
-	}
+        return upload(fileInputStream, fileToUpload.length(), region, bucket, key);
+    }
 
-	public String uploadFromUrl(final String urlToUpload, String region, String bucket, String key) throws IOException {
+    private String upload(InputStream inputStream, final long size, String region, String bucket, String key)
+            throws IOException {
 
-		URL url = new URL(urlToUpload);
-		URLConnection connection = url.openConnection();
-		connection.connect();
-		int fileLenth = connection.getContentLength();
-		InputStream inputStream = url.openStream();
-		BufferedInputStream bufferedInputStream = new BufferedInputStream(inputStream);
+        CountingFileRequestBody body = new CountingFileRequestBody(inputStream, size, "", new CountingFileRequestBody.ProgressListener() {
 
-		key = UUID.randomUUID().toString();
+            @Override
+            public void percentageTransferred(int percentage) {
+                System.err.println(percentage);
+            }
 
-		if(urlToUpload.contains(".")) {
-			key = key + urlToUpload.substring(urlToUpload.lastIndexOf("."));
-		}
+        });
 
+        Request request = new Request.Builder()
+                .url(urls.get(region) + "/" + bucket + "/" + key)
+                .header("X-Auth-Token", getToken())
+                .addHeader("Content-Length", String.valueOf(size))
+                .put(body).build();
 
+        Response response = client.newCall(request).execute();
 
-		return upload(bufferedInputStream,fileLenth,region,bucket,key);
-	}
+        if (response.code() == 404) {
+            createBucket(region, bucket);
+            return upload(inputStream, size, region, bucket, key);
+        }
 
-	public String uploadFromBytes(final byte[] bytesToUpload, String region, String bucket, String key) throws IOException {
+        return getBucketCdnUrl(region, bucket) + "/" + key;
 
-		ByteArrayInputStream bufferedInputStream = new ByteArrayInputStream(bytesToUpload);
 
-		key = UUID.randomUUID().toString();
+    }
 
-		return upload(bufferedInputStream,bytesToUpload.length,region,bucket,key);
-	}
+    private String getObjectCdnUrl(String region, String bucket, String key)
+            throws IOException {
+        return getBucketCdnUrl(region, bucket) + "/" + key;
+    }
 
-	public String uploadFromFile(final File fileToUpload, String region, String bucket, String key) throws IOException {
+    private Response createBucket(String region, String bucket)
+            throws IOException {
 
-		FileInputStream fileInputStream = new FileInputStream(fileToUpload);
+        RequestBody body = RequestBody.create(IMAGE, "");
+        Request request = new Request.Builder()
+                .url(urls.get(region) + "/" + bucket)
+                .header("X-Auth-Token", getToken()).put(body).build();
+        client.newCall(request).execute();
 
-		key = UUID.randomUUID().toString();
+        body = RequestBody.create(IMAGE, "");
+        request = new Request.Builder().url(cdnUrls.get(region) + "/" + bucket)
+                .header("X-Auth-Token", getToken())
+                .addHeader("X-Cdn-Enabled", "True").put(body).build();
 
-		String fileName= fileToUpload.getName();
+        Response response = client.newCall(request).execute();
 
-		if(fileName.contains(".")) {
-			key = key + fileName.substring(fileName.lastIndexOf("."));
-		}
+        if (!response.isSuccessful())
+            throw new IOException("Unexpected code " + response);
 
-		return upload(fileInputStream,fileToUpload.length(),region,bucket,key);
-	}
+        return response;
 
+    }
 
-	private String upload(InputStream inputStream, final long size, String region, String bucket, String key)
-			throws IOException {
+    private String getBucketCdnUrl(String region, String bucket)
+            throws IOException {
 
+        Request request = new Request.Builder()
+                .url(cdnUrls.get(region) + "/" + bucket)
+                .header("X-Auth-Token", getToken())
 
+                .head().build();
 
-		CountingFileRequestBody body = new CountingFileRequestBody(inputStream,size, "", new CountingFileRequestBody.ProgressListener() {
+        Response response = client.newCall(request).execute();
 
-			@Override
-			public void percentageTransferred(int percentage) {
-				System.err.println(percentage);
-			}
+        if (response.header("X-Cdn-Ssl-Uri") != null) {
+            return response.header("X-Cdn-Ssl-Uri");
+        } else {
+            throw new IOException(bucket + " at region " + region
+                    + " not found");
+        }
 
+    }
 
-		});
+    private String generateToken(String userName, String apiKey) throws IOException {
 
-		Request request = new Request.Builder()
-				.url(urls.get(region) + "/" + bucket + "/" + key)
-				.header("X-Auth-Token", getToken())
-				.addHeader("Content-Length", String.valueOf(size))
-				.put(body).build();
+        JsonObject cred = new JsonObject();
+        cred.addProperty("username", userName);
+        cred.addProperty("apiKey", apiKey);
+        JsonObject rax = new JsonObject();
+        rax.add("RAX-KSKEY:apiKeyCredentials", cred);
 
-		Response response = client.newCall(request).execute();
+        JsonObject obj = new JsonObject();
+        obj.add("auth", rax);
+        String json = obj.toString();
 
-		if (response.code() == 404) {
-			createBucket(region, bucket);
-			return upload(inputStream,size, region, bucket, key);
-		}
+        RequestBody body = RequestBody.create(JSON, json);
+        Request request = new Request.Builder().url(tokenURL).post(body)
+                .build();
+        Response response = client.newCall(request).execute();
 
-	 
-		long sent = Long.valueOf(response.header("OkHttp-Sent-Millis"));
-		long Received = Long.valueOf(response.header("OkHttp-Received-Millis"));
-		
-		
-		//System.err.println(Received -  sent);
-		
-//		response = client.newCall(request).execute();
-//		if (!response.isSuccessful())
-//			throw new IOException("Unexpected code " + response);
-		return getBucketCdnUrl(region, bucket) +"/"+key;
+        if (!response.isSuccessful())
+            throw new IOException("Unexpected code " + response);
 
+        return response.body().string();
+    }
 
-	}
+    private void authentication(String userName, String apiKey)
+            throws IOException {
+        String json = generateToken(userName, apiKey);
 
+        JsonParser jsonParser = new JsonParser();
+        JsonObject jo = (JsonObject) jsonParser.parse(json);
 
-	private String getObjectCdnUrl(String region, String bucket, String key)
-			throws IOException {
-		return getBucketCdnUrl(region, bucket) + "/" + key;
-	}
+        setToken(jo.getAsJsonObject("access").getAsJsonObject("generateToken")
+                .get("id").getAsString());
+        JsonArray services = jo.getAsJsonObject("access").get("serviceCatalog")
+                .getAsJsonArray();
 
-	private Response createBucket(String region, String bucket)
-			throws IOException {
+        for (JsonElement jsonElement : services) {
+            JsonObject jobj = jsonElement.getAsJsonObject();
 
-		RequestBody body = RequestBody.create(IMAGE, "");
-		Request request = new Request.Builder()
-				.url(urls.get(region) + "/" + bucket)
-				.header("X-Auth-Token", getToken()).put(body).build();
-		client.newCall(request).execute();
+            if (jobj.get("name").getAsString().equals("cloudFiles")) {
 
-		body = RequestBody.create(IMAGE, "");
-		request = new Request.Builder().url(cdnUrls.get(region) + "/" + bucket)
-				.header("X-Auth-Token", getToken())
-				.addHeader("X-Cdn-Enabled", "True").put(body).build();
+                JsonArray endpoints = jobj.getAsJsonArray("endpoints");
+                for (JsonElement jsonElement2 : endpoints) {
 
-		Response response = client.newCall(request).execute();
+                    urls.put(jsonElement2.getAsJsonObject().get("region")
+                                    .getAsString(),
+                            jsonElement2.getAsJsonObject().get("publicURL")
+                                    .getAsString());
 
-		if (!response.isSuccessful())
-			throw new IOException("Unexpected code " + response);
+                }
+            }
 
-		return response;
+            if (jobj.get("name").getAsString().equals("cloudFilesCDN")) {
 
-	}
+                JsonArray endpoints = jobj.getAsJsonArray("endpoints");
+                for (JsonElement jsonElement2 : endpoints) {
 
-	private String getBucketCdnUrl(String region, String bucket)
-			throws IOException {
+                    cdnUrls.put(jsonElement2.getAsJsonObject().get("region")
+                                    .getAsString(),
+                            jsonElement2.getAsJsonObject().get("publicURL")
+                                    .getAsString());
 
-		Request request = new Request.Builder()
-				.url(cdnUrls.get(region) + "/" + bucket)
-				.header("X-Auth-Token", getToken())
+                }
+            }
 
-				.head().build();
+        }
 
-		Response response = client.newCall(request).execute();
+    }
 
-		if (response.header("X-Cdn-Ssl-Uri") != null) {
-			return response.header("X-Cdn-Ssl-Uri");
-		} else {
-			throw new IOException(bucket + " at region " + region
-					+ " not found");
-		}
+    private String getToken() {
+        return token;
+    }
 
-	}
-
-	private String token(String userName, String apiKey) throws IOException {
-
-		JsonObject cred = new JsonObject();
-		cred.addProperty("username", userName);
-		cred.addProperty("apiKey", apiKey);
-		JsonObject rax = new JsonObject();
-		rax.add("RAX-KSKEY:apiKeyCredentials", cred);
-
-		JsonObject obj = new JsonObject();
-		obj.add("auth", rax);
-		String json = obj.toString();
-
-		RequestBody body = RequestBody.create(JSON, json);
-		Request request = new Request.Builder().url(tokenURL).post(body)
-				.build();
-		Response response = client.newCall(request).execute();
-
-		if (!response.isSuccessful())
-			throw new IOException("Unexpected code " + response);
-
-		return response.body().string();
-	}
-
-	private String getToken() {
-		return token;
-	}
-
-	private void setToken(String token) {
-		this.token = token;
-	}
-
+    private void setToken(String token) {
+        this.token = token;
+    }
 
 
 }
