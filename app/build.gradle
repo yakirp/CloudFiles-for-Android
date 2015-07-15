@@ -1,5 +1,14 @@
 apply plugin: 'com.android.library'
 
+ext {
+    
+    libraryName = 'CloudFiles Android'
+    artifact = 'cloudfilesandroid'
+
+    
+
+}
+
 android {
     compileSdkVersion 22
     buildToolsVersion "22.0.1"
